@@ -1,84 +1,103 @@
-const testUrl = 'http://localhost:4000';
-const burgerConstructorSelector = '[data-cy=burger-constructor]';
-const mainsConstructorSelector = '[data-cy=ingredients-mains]';
-const saucesConstructorSelector = '[data-cy=ingredients-sauces]';
-const closeModalSelector = '[data-cy=modal-close]';
+const BASE_URL = 'http://localhost:4000';
 
-describe('проверяем доступность приложения', () => {
-  beforeEach(() => {
-    cy.intercept('GET', 'api/ingredients', { fixture: 'ingredients.json' });
-    cy.visit(testUrl);
-  });
+// Селекторы
+const selectors = {
+  modal: '[data-cy="modal_ingredient"]',
+  bunItem: '[data-cy="bun_0"]',
+  modalHeader: '[data-cy="ingredient_modal"] > .text_type_main-medium',
+  overlay: '[data-cy="modal_overlay"]',
+  closeModalBtn: '[data-cy="btn_close_modal"]',
+  clearTopBun: '[data-cy="bun_constructor_item_up_clear"]',
+  clearBottomBun: '[data-cy="bun_constructor_item_down_clear"]',
+  addedIngredient: '[data-cy="ingredient_constructor_item"]',
+  ingredientMain: '[data-cy="ingredient_0"]',
+  addIngredientButton: '.common_button',
+  orderButton: '[data-cy="new_order_btn"]',
+  orderNumber: '[data-cy="new_order_number"]'
+};
 
-  it('ингредиент должен добавляться в коструктор', () => {
-    cy.get(mainsConstructorSelector).contains('Добавить').click();
-    cy.get(saucesConstructorSelector).contains('Добавить').click();
-    cy.get(burgerConstructorSelector).contains('Ингредиент 2').should('exist');
-    cy.get('[data-cy=burger-constructor]')
-      .contains('Ингредиент 4')
-      .should('exist');
+beforeEach(() => {
+  localStorage.setItem('refreshToken', 'testRefreshToken');
+  cy.setCookie('accessToken', 'testAccessToken');
+
+  cy.intercept('GET', 'api/ingredients', { fixture: 'ingredients' }).as('loadIngredients');
+  cy.intercept('GET', 'api/auth/user', { fixture: 'user' }).as('loadUser');
+
+  cy.visit(BASE_URL);
+  cy.wait('@loadIngredients');
+  cy.wait('@loadUser');
+});
+
+afterEach(() => {
+  cy.clearAllCookies();
+  cy.clearAllLocalStorage();
+});
+
+describe('Доступность приложения', () => {
+  it('Страница доступна по адресу', () => {
+    cy.visit(BASE_URL);
   });
 });
 
-describe('тесты модального окна', () => {
-  beforeEach(() => {
-    cy.intercept('GET', 'api/ingredients', { fixture: 'ingredients.json' });
-    cy.visit(testUrl);
-  });
+describe('Проверка интерфейса конструктора', () => {
+  it('Добавление ингредиентов в бургер', () => {
+    cy.get(selectors.clearTopBun).should('exist');
+    cy.get(selectors.clearBottomBun).should('exist');
+    cy.get(selectors.addedIngredient).should('not.exist');
 
-  it('открывается модальное окно при клике на ингредиент', () => {
-    cy.contains('Детали ингредиента').should('not.exist');
-    cy.contains('Ингредиент 1').click();
-    cy.contains('Детали ингредиента').should('exist');
-    cy.get('#modals').contains('Ингредиент 1').should('exist');
-  });
+    cy.get(selectors.bunItem).find(selectors.addIngredientButton).click();
+    cy.get(selectors.ingredientMain).should('exist');
+    cy.get(':nth-child(4)').find(selectors.ingredientMain).find(selectors.addIngredientButton).click();
 
-  it('закрывается при клике на крестик', () => {
-    cy.contains('Ингредиент 1').click();
-    cy.contains('Детали ингредиента').should('exist');
-    cy.get(closeModalSelector).click();
-    cy.contains('Детали ингредиента').should('not.exist');
+    cy.get('[data-cy="bun_constructor_item_up"]').should('exist');
+    cy.get('[data-cy="bun_constructor_item_down"]').should('exist');
+    cy.get(selectors.addedIngredient).should('exist');
   });
 });
 
-describe('тесты оформления заказа', () => {
-  beforeEach(() => {
-    cy.intercept('GET', 'api/ingredients', { fixture: 'ingredients.json' });
-    cy.intercept('GET', 'api/auth/user', { fixture: 'userData.json' });
-    cy.intercept('POST', 'api/orders', { fixture: 'userOrder.json' }).as(
-      'postOrder'
-    );
-    window.localStorage.setItem(
-      'refreshToken',
-      JSON.stringify('fakeRefreshToken')
-    );
-    cy.setCookie('accessToken', 'fakeAccessToken');
-    cy.visit(testUrl);
+describe('Модальное окно ингредиента', () => {
+  const expectedIngredient = 'Краторная булка N-200i';
+
+  it('Открытие и закрытие по клику вне окна', () => {
+    cy.get(selectors.modal).should('not.exist');
+    cy.get(selectors.bunItem).click();
+    cy.get(selectors.modal).should('be.visible');
+    cy.get(selectors.modalHeader).should('contain.text', expectedIngredient);
+    cy.get(selectors.overlay).click({ force: true });
+    cy.get(selectors.modal).should('not.exist');
   });
 
-  afterEach(() => {
-    window.localStorage.clear();
-    cy.clearCookies();
+  it('Открытие и закрытие по кнопке', () => {
+    cy.get(selectors.bunItem).click();
+    cy.get(selectors.modalHeader).should('contain.text', expectedIngredient);
+    cy.get(selectors.closeModalBtn).click();
+    cy.get(selectors.modal).should('not.exist');
   });
+});
 
-  it('сборка бургера для заказа и нажатие на кнопку заказа', () => {
-    cy.get('[data-cy=ingredients-buns]').contains('Добавить').click();
-    cy.get(mainsConstructorSelector).contains('Добавить').click();
-    cy.get(saucesConstructorSelector).contains('Добавить').click();
-    cy.get('[data-cy=order-button]').click();
-    cy.get('[data-cy=order-number]').contains('1').should('exist');
+describe('Процесс заказа', () => {
+  it('Проверка оформления заказа', () => {
+    cy.get(selectors.clearTopBun).should('exist');
+    cy.get(selectors.clearBottomBun).should('exist');
+    cy.get(selectors.addedIngredient).should('not.exist');
 
-    cy.get(closeModalSelector).click();
-    cy.get('[data-cy=order-number]').should('not.exist');
+    cy.get(selectors.bunItem).find(selectors.addIngredientButton).click();
+    cy.get(':nth-child(4)').find(selectors.ingredientMain).find(selectors.addIngredientButton).click();
 
-    cy.get(burgerConstructorSelector)
-      .contains('Ингредиент 1')
-      .should('not.exist');
-    cy.get(burgerConstructorSelector)
-      .contains('Ингредиент 2')
-      .should('not.exist');
-    cy.get(burgerConstructorSelector)
-      .contains('Ингредиент 4')
-      .should('not.exist');
+    cy.intercept('POST', 'api/orders', { fixture: 'newOrder' }).as('submitOrder');
+
+    cy.get(selectors.orderButton).click();
+    cy.wait('@submitOrder');
+
+    cy.fixture('newOrder').then((orderData) => {
+      cy.get(selectors.orderNumber).should('contain', orderData.order.number);
+    });
+
+    cy.wait(1000);
+    cy.get(selectors.closeModalBtn).click();
+
+    cy.get(selectors.clearTopBun).should('exist');
+    cy.get(selectors.clearBottomBun).should('exist');
+    cy.get(selectors.addedIngredient).should('not.exist');
   });
 });
